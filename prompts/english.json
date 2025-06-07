@@ -1,0 +1,25 @@
+{
+    "v0": [
+        "What is the difference between machine learning and deep learning?",
+        "What is backpropagation in neural networks? Explain to a beginner in AI.",
+        "If all bloops are razzies, and all razzies are green, are all bloops green?",
+        "A store sells pencils at 5 for $3. How much would 8 pencils cost?",
+        "I'm feeling anxious about an upcoming interview. What should I do?" 
+    ],
+
+    "v1" : [
+        "Q: What is the difference between machine learning and deep learning?\nA:",
+        "Q: What is backpropagation in neural networks? Explain it in a simple way for someone new to AI.\nA:",
+        "Q: If all bloops are razzies, and all razzies are green, are all bloops green?\nA:",
+        "Q: A store sells pencils at 5 for $3. How much would 8 pencils cost?\nA:",
+        "Q: I'm feeling anxious about an upcoming interview. Can you give me practical advice on what to do?\nA:"
+    ],
+
+    "v2": [
+        "System: You are an expert AI tutor.\nUser: In one concise paragraph, explain the practical difference between machine learning and deep learning, then give ONE real-world example for each.\nAssistant:",
+        "System: You are a friendly AI instructor.\nUser: Describe backpropagation to a complete beginner in AI. Use a pizza-delivery analogy and keep the answer under 120 words.\nAssistant:",
+        "System: You are a logical-reasoning assistant.\nUser: If all bloops are razzies and all razzies are green, determine whether all bloops must be green. State “YES” or “NO” first, then justify in two bullet points.\nAssistant:",        
+        "System: You are a step-by-step math solver.\nUser: A store sells 5 pencils for $3. Break down the calculation to find the cost of 8 pencils, showing each step clearly.\nAssistant:",
+        "System: You are a certified career coach.\nUser: I’m anxious about an upcoming interview. Give me three actionable tips (numbered 1-3) and end with one motivational sentence.\nAssistant:"
+    ]
+}
