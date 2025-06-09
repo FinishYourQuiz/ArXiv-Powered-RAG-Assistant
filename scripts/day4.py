@@ -24,7 +24,7 @@ prompt = {
 ### ====== 1. Chain/Bind a PromptTemplate + a LLM  ======
 from langchain.chains import LLMChain
 
-llm_openai = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
+llm_openai = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
 # chain_openai = LLMChain(llm = llm_openai, prompt=prompt_template)
 # response_openai = chain_openai.run(prompt)
 # print("OpenAI: ", response_openai)
