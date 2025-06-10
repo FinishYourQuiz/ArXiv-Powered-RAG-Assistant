@@ -2,3 +2,4 @@ models/
 .env
 .vscode/settings.json
 .gitignore
+data/
