@@ -18,7 +18,7 @@
 """
 
 
-#### === Introduction ===
+#### === 1. Introduction ===
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
 from llama_index.core.agent.workflow import FunctionAgent
 from llama_index.llms.openai import OpenAI
@@ -58,8 +58,11 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 
+#####################################################################################################
+########## ATTENTION - Most of the following usage have been depretiated by Settings ###############
+#####################################################################################################
 
-#### === Integratet with LangChain ===
+#### === 2. Integratet with LangChain ===
 from llama_index import (
     download_loader,
     GPTVectorStoreIndex,
