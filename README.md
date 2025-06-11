@@ -8,7 +8,7 @@
 ### 使用方法
   1. 编辑 `data/docs` 放入测试文档  
   2. `conda activate {your_env} && pip install -r requirements.txt`  
-  3. `python /scripts/level_0/day6.py`
+  3. `python /scripts/level_0/demo_llama_index.py`
 
 ### 测试问题示例
   - What is the capital of New South Wales?
