@@ -2,4 +2,4 @@ models/
 .env
 .vscode/settings.json
 .gitignore
-data/
+data/essay.txt

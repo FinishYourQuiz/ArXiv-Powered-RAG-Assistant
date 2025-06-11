@@ -28,7 +28,10 @@ def create_query_engine(path='data'):
     return query_engine
 
 # === 3. CLI 交互 === #
-def main():
+def cli(md_path="results.md"):
+    questions = []
+    responses = []
+    quotes = []
     engine = create_query_engine('data/docs')
     print("=== Demo Bot V1.0 ===\n")
     print("输入 'exit' 退出此程序！")
@@ -39,13 +42,38 @@ def main():
             break
         response = engine.query(q)
         print(f"答案: {response}\n")
+        questions.append(q)
+        responses.append(response)
         print("引用: ")
+        quote = []
         for node in response.source_nodes:
-            print(f"- {node.get_content()[:20].strip()}...")
+            curr_quote = node.get_content()[:20].strip()
+            print(f"- {curr_quote}...")
+            quote.append(curr_quote)
+        quotes.append(quote)
+    export_to_md(questions, responses, quotes, md_path)
+
+# === 4.生成md表格 === #
+def export_to_md(questions, responses, quotes, md_path): 
+    parent_dir = os.path.dirname(md_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
+
+    md_lines = [
+        "| 问题 | 回答 | 引用 |",
+        "| --- | --- | --- |"
+    ]
+
+    for q, r, qs in zip(questions, responses, quotes):
+        quote_str = ";".join(qs).replace("\n", " ").replace("|", "\\|")
+        q_esc = q.replace("\n", " ").replace("|", "\\|")
+        r_esc = str(r).replace("\n", " ").replace("|", "\\|")
+        md_lines.append(f"| {q_esc} | {r_esc} | {quote_str} |")
+
+    # 写入文件
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(md_lines))
+    print(f"已生成 Markdown 表格：{md_path}")
 
 if __name__ == "__main__":
-    main()
-    # 答案: 给我介绍下悉尼
-    # 引用:
-    # - Sydney is the largest city in Australia and the state capital of New South Wales....
-    # - The programming language Python was created by Guido van Rossum and first released in 1991....
+    cli('results/cli.md')
