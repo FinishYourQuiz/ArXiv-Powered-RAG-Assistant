@@ -1,0 +1,7 @@
+Amanda Feng  
+Dear Thaís,
+I am excited to apply for the Machine Learning Engineer role focused on autonomous systems. My background combines hands-on model training, real-world deployment, and a strong interest in agentic AI.
+At Symbio, I worked on a fraud detection model using LightGBM with over 30 million records and automated daily retraining with AWS tools. I also contributed to CI/CD pipelines and helped reduce deployment times. Previously, I built GAN-powered pipelines for game content and trained deep learning models for lip sync at Pinscreen.
+Recently, I developed LLM-based prototypes using LangChain, AutoGen, and local RAG. These projects focused on tool use and multi-step reasoning, which I understand is core to this role.
+I am eager to help build models that not only think but act in the real world. Thank you for considering my application.
+Best regards, Amanda

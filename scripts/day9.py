@@ -480,17 +480,16 @@ def retrive():
     llm = init_chat_model("gpt-4o-mini", model_provider="openai")
     embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
     vector_store = InMemoryVectorStore(embeddings)
-    loader = WebBaseLoader(
-        web_paths=("https://lilianweng.github.io/posts/2023-06-23-agent/",),
-        bs_kwargs=dict(
-            parse_only=bs4.SoupStrainer(
-                class_=("post-content", "post-title", "post-header")
-            )
-        ),
-    )
-    docs = loader.load()
-
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+
+    docs = WebBaseLoader(
+                web_paths=("https://lilianweng.github.io/posts/2023-06-23-agent/",),
+                bs_kwargs=dict(
+                    parse_only=bs4.SoupStrainer(
+                        class_=("post-content", "post-title", "post-header")
+                    )
+                ),
+            ).load()
     all_splits = text_splitter.split_documents(docs)
     _ = vector_store.add_documents(documents=all_splits)
  
