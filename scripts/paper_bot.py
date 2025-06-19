@@ -1,167 +1,236 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+paper_bot.py
+------------
+
+On-demand arXiv → RAG pipeline with LangChain + OpenAI.
+
+Usage
+~~~~~
+$ export OPENAI_API_KEY="sk-..."
+$ python paper_bot.py --query "what is a transformer"
+
+Author: <Your Name>
+License: MIT
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 import requests
 from langchain import hub
-from semanticscholar import SemanticScholar 
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from langchain.agents import Tool, AgentExecutor, create_react_agent 
-from langchain_openai.embeddings import OpenAIEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain.prompts import PromptTemplate
+from langchain.agents import Tool, AgentExecutor, create_react_agent
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_openai.chat_models import ChatOpenAI
-from langchain_community.retrievers import ArxivRetriever 
-from langchain_community.utilities.arxiv import ArxivAPIWrapper
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.chains.summarize import load_summarize_chain
-import os
-from PyPDF2 import PdfReader
-from langchain_core.runnables import Runnable
-import xml.etree.ElementTree as ET
 from langchain.chains.retrieval import create_retrieval_chain
+from langchain.chains.summarize import load_summarize_chain
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from langchain_community.vectorstores import FAISS
+from langchain_openai.chat_models import ChatOpenAI
+from langchain_openai.embeddings import OpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from PyPDF2 import PdfReader
 
-client = SemanticScholar()
-llm = ChatOpenAI(
-    model="gpt-4o-mini", 
-    streaming=True, 
-    callbacks=[StreamingStdOutCallbackHandler()]
+# --------------------------------------------------------------------------- #
+# Configuration
+# --------------------------------------------------------------------------- #
+ARXIV_API_URL = "https://export.arxiv.org/api/query"
+DOWNLOAD_DIR = Path("downloads")
+CHUNK_SIZE = 800
+CHUNK_OVERLAP = 200
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
-react_agent_prompt = hub.pull("hwchase17/react")
-retrieval_qa_chat_prompt = hub.pull("langchain-ai/retrieval-qa-chat")
-embeddings = OpenAIEmbeddings()
-splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=200)
- 
-def parse_arxiv_response(response):
-    """
-    Parses the arXiv API response and extracts relevant information.
-    """
-    if response.status_code != 200:
-        raise Exception(f"Error fetching data from arXiv: {response.status_code}")
-    if not response.text:
-        raise ValueError("Empty response from arXiv API.")
-    root = ET.fromstring(response.text)
-    entries = []
-    for entry in root.findall('{http://www.w3.org/2005/Atom}entry'):
-        title = entry.find('{http://www.w3.org/2005/Atom}title').text
-        pdf_url = None
-        for link in entry.findall('{http://www.w3.org/2005/Atom}link'):
-            print(link.attrib)
-            if 'pdf' in link.attrib.get('href', ''):
-                pdf_url = link.attrib['href']
-        entries.append({'title': title, 'pdf_url': pdf_url})
-    return entries
+logger = logging.getLogger(__name__)
 
-def search_arxiv(question: str):
-    """
-    Searches arXiv for papers related to the question and returns the first paper found.
-    """
-    keywords = "all:" + "+".join(question.split()[:5])
-    url = "https://export.arxiv.org/api/query" 
-    params = {
-        "search_query": keywords,
-        "start": 0,
-        "max_results": 2
-    }
-    resp = requests.get(url, params=params)
-    resp = parse_arxiv_response(resp)  # Get the first paper
-    if not resp:
+# LangChain objects prepared once and reused
+LLM = ChatOpenAI(
+    model="gpt-4o-mini",
+    streaming=True,
+    callbacks=[StreamingStdOutCallbackHandler()],
+)
+EMBEDDINGS = OpenAIEmbeddings()
+SPLITTER = RecursiveCharacterTextSplitter(
+    chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP
+)
+REACT_PROMPT = hub.pull("hwchase17/react")
+QA_PROMPT = hub.pull("langchain-ai/retrieval-qa-chat")
+
+
+# --------------------------------------------------------------------------- #
+# ArXiv Helpers
+# --------------------------------------------------------------------------- #
+def _parse_arxiv_response(resp: requests.Response) -> List[Dict[str, str]]:
+    """Parse Atom XML and return [{title, pdf_url}, ...]."""
+    if resp.status_code != 200:
+        raise RuntimeError(f"arXiv HTTP {resp.status_code}")
+    if not resp.text:
+        raise ValueError("Blank response from arXiv")
+
+    root = ET.fromstring(resp.text)
+    out: List[Dict[str, str]] = []
+
+    for entry in root.findall("{http://www.w3.org/2005/Atom}entry"):
+        title_el = entry.find("{http://www.w3.org/2005/Atom}title")
+        if title_el is None:
+            continue
+        title = title_el.text or "Untitled"
+
+        pdf_url: Optional[str] = None
+        for link in entry.findall("{http://www.w3.org/2005/Atom}link"):
+            href = link.attrib.get("href", "")
+            if "pdf" in href:
+                pdf_url = href
+                break
+
+        if pdf_url:
+            out.append({"title": title.strip(), "pdf_url": pdf_url})
+
+    return out
+
+
+def search_arxiv(query: str, max_results: int = 2) -> Optional[Dict[str, str]]:
+    """Return the first arXiv hit as dict(title, pdf_url) or None."""
+    keywords = "all:" + "+".join(query.split()[:5])
+    params = {"search_query": keywords, "start": 0, "max_results": max_results}
+
+    try:
+        resp = requests.get(ARXIV_API_URL, params=params, timeout=20)
+        papers = _parse_arxiv_response(resp)
+        return papers[0] if papers else None
+    except Exception as exc:  # noqa: BLE001
+        logger.error("ArXiv search failed: %s", exc)
         return None
-    return resp[0]
 
-def download_pdf(paper: dict, save_dir: str = "downloads"):
-    """
-    Downloads the PDF of the paper from arXiv and saves it to the specified directory.
-    """
-    save_dir = "downloads"
-    pdf_url = paper['pdf_url']
-    if not os.path.exists(path=save_dir):
-        os.makedirs(save_dir)
-    pdf_path = os.path.join(save_dir, pdf_url.split('/')[-1]+".pdf")
-    resp = requests.get(pdf_url, timeout=30)
-    with open(pdf_path, "wb") as f:
-        f.write(resp.content)
-    return pdf_path
 
-def parse_pdf(pdf_path: str):
-    """
-    Parses the PDF file and extracts text from all pages.
-    """
-    reader = PdfReader(pdf_path)
-    pages_ = [page.extract_text() or "" for page in reader.pages]
-    pages = "\n".join(pages_)
-    return pages
+def download_pdf(pdf_url: str, dest_dir: Path = DOWNLOAD_DIR) -> Path:
+    """Download PDF and return local path."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    fname = pdf_url.split("/")[-1] + ".pdf"
+    out_path = dest_dir / fname
 
-def build_retriever(pages: str):
-    """
-    Builds a retriever from the parsed text of the PDF.
-    """
-    chunks = splitter.split_text(pages)
-    vector_index = FAISS.from_texts(chunks, embeddings)
-    retriever = vector_index.as_retriever(search_kwargs={"k": 3})
-    combine_docs_chain = create_stuff_documents_chain(llm, retrieval_qa_chat_prompt)
-    rag_chain = create_retrieval_chain(retriever, combine_docs_chain)
-    return rag_chain
+    try:
+        resp = requests.get(pdf_url, timeout=30)
+        resp.raise_for_status()
+        out_path.write_bytes(resp.content)
+        logger.info("PDF saved to %s", out_path)
+        return out_path
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"PDF download failed: {exc}") from exc
 
-def answer_question(rag_chain: Runnable, question: str): 
-    """
-    Answers the question using the RAG chain built from the PDF text.
-    """
-    result = rag_chain.invoke({"input": question})
-    return result
 
-def qa_pipeline(question: str):
-    # 1) 搜索
-    info = search_arxiv(question)
+def parse_pdf(pdf_path: Path) -> str:
+    """Extract plain text from PDF."""
+    reader = PdfReader(str(pdf_path))
+    pages = [page.extract_text() or "" for page in reader.pages]
+    return "\n".join(pages)
 
-    if not info or not info.get('pdf_url'):
-        print("Cannot find any paper related to the question. I will try to answer the question directly.")
-        return llm.invoke(question) 
-    
-    print(f"[1] Found paper: {info['title']}")
 
-    # 2) 下载
-    pdf_path = download_pdf(info)
-    print(f"[2] Downloaded PDF to {pdf_path}")
-    
-    # 3) 解析
-    full_text = parse_pdf(pdf_path)
-    print(f"[3] Preview of the first 100 characters:\n{full_text[:100]}")
-    
-    # 4) 索引构建
-    retriever = build_retriever(full_text)
-    print(f"[4] Index built with {len(retriever.index)} chunks")
-    
-    # 5) 检索问答
-    print(f"[5] Answering question using the retrieved index...")
-    answer = answer_question(retriever, question) 
+# --------------------------------------------------------------------------- #
+# RAG Construction
+# --------------------------------------------------------------------------- #
+def build_rag_chain(text: str):
+    chunks = SPLITTER.split_text(text)
+    if not chunks:
+        raise ValueError("No text extracted from PDF.")
 
-    # 6) 返回答案
-    return answer
+    vector_db = FAISS.from_texts(chunks, EMBEDDINGS)
+    retriever = vector_db.as_retriever(search_kwargs={"k": 3})
 
-def summarize_paper(pages: str):
-    docs = splitter.split_text(pages) 
-    summarizer = load_summarize_chain(llm=llm, chain_type="map_reduce")
-    return summarizer.run(docs)
-  
-search_tool = Tool.from_function(
+    combine_chain = create_stuff_documents_chain(LLM, QA_PROMPT)
+    return create_retrieval_chain(retriever, combine_chain)
+
+
+def summarize_text(text: str) -> str:
+    docs = SPLITTER.split_text(text)
+    chain = load_summarize_chain(llm=LLM, chain_type="map_reduce")
+    return chain.run(docs)
+
+
+# --------------------------------------------------------------------------- #
+# End-to-end Pipeline
+# --------------------------------------------------------------------------- #
+def qa_pipeline(question: str) -> str:
+    """Search arXiv, build RAG, and answer the original question."""
+    paper = search_arxiv(question)
+    if not paper:
+        logger.warning("No paper found; falling back to LLM only.")
+        return str(LLM.invoke(question))
+
+    logger.info("Found paper: %s", paper["title"])
+    pdf_path = download_pdf(paper["pdf_url"])
+    raw_text = parse_pdf(pdf_path)
+    logger.info("Text length: %s chars", len(raw_text))
+
+    rag_chain = build_rag_chain(raw_text)
+    logger.info("RAG built; answering question...")
+    answer = rag_chain.invoke({"input": question})
+    return str(answer)
+
+
+# --------------------------------------------------------------------------- #
+# Agent Setup
+# --------------------------------------------------------------------------- #
+SEARCH_TOOL = Tool.from_function(
     qa_pipeline,
-    name="Search arXiv", 
-    description="Search arXiv for papers based on question, and then answer the question"
+    name="SearchArXiv",
+    description="Answer a question by searching arXiv and reading the first PDF.",
 )
 
-tools = [search_tool]
- 
-agent_ = create_react_agent(llm, tools, react_agent_prompt)
-agent = AgentExecutor(agent=agent_, tools=tools, verbose=True, max_iterations=5)
+AGENT = AgentExecutor(
+    agent=create_react_agent(LLM, [SEARCH_TOOL], REACT_PROMPT),
+    tools=[SEARCH_TOOL],
+    verbose=True,
+    max_iterations=5,
+)
 
-query_qa = "search from arxiv, what is transformer and why it yields good result in llm?"
-in_ = input("Enter your query: ")
-while in_.lower() != "exit":
-    query_qa = in_
-    if not query_qa.strip():
-        print("Query cannot be empty. Please enter a valid query.")
-        in_ = input("Enter your query: ")
-        continue
-    print(f"Start thinking....")
-    # Invoke the agent with the query
-    response = agent.invoke({"input": query_qa})
-    in_ = input("Enter your query (type 'exit' to exit program):")
-print("Exiting the script. Goodbye!")
+
+# --------------------------------------------------------------------------- #
+# CLI / REPL
+# --------------------------------------------------------------------------- #
+def interactive_loop() -> None:
+    """Simple REPL; type 'exit' to quit."""
+    try:
+        while True:
+            query = input("Query ('exit' to quit): ").strip()
+            if query.lower() == "exit":
+                break
+            if not query:
+                continue
+            logger.info("Thinking...")
+            _ = AGENT.invoke({"input": query})
+    except (KeyboardInterrupt, EOFError):
+        logger.info("Interrupted, exiting.")
+
+
+def parse_args(argv: List[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="arXiv-powered RAG assistant")
+    parser.add_argument(
+        "--query",
+        help="Run a single query and exit (skips REPL)",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: List[str] | None = None) -> None:
+    args = parse_args(argv or sys.argv[1:])
+    if args.query:
+        logger.info("Single-shot mode")
+        result = qa_pipeline(args.query)
+        print(result)
+    else:
+        interactive_loop()
+
+
+if __name__ == "__main__":
+    main()
