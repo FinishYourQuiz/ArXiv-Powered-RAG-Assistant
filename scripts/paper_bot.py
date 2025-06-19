@@ -1,5 +1,4 @@
 import requests
-import gradio as gr
 from langchain import hub
 from semanticscholar import SemanticScholar 
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
@@ -113,29 +112,28 @@ def qa_pipeline(question: str):
     info = search_arxiv(question)
 
     if not info or not info.get('pdf_url'):
-        print("没有找到相关论文或PDF链接，我将根据我的知识回答问题。")
+        print("Cannot find any paper related to the question. I will try to answer the question directly.")
         return llm.invoke(question) 
     
-    print(f"[1] 找到论文：{info}")
+    print(f"[1] Found paper: {info['title']}")
 
     # 2) 下载
     pdf_path = download_pdf(info)
-    print(f"[2] 下载完成：{pdf_path}")
+    print(f"[2] Downloaded PDF to {pdf_path}")
     
     # 3) 解析
     full_text = parse_pdf(pdf_path)
-    print(f"[3] 解析完成，文本长度：{len(full_text)} 字符")
+    print(f"[3] Preview of the first 100 characters:\n{full_text[:100]}")
     
     # 4) 索引构建
     retriever = build_retriever(full_text)
-    print(f"[4] 索引构建完成，检索器已就绪")
+    print(f"[4] Index built with {len(retriever.index)} chunks")
     
     # 5) 检索问答
-    print(f"[5] 提问：\n{question}")
+    print(f"[5] Answering question using the retrieved index...")
     answer = answer_question(retriever, question) 
 
     # 6) 返回答案
-    print(f"[6] 回答：\n{answer}")
     return answer
 
 def summarize_paper(pages: str):
@@ -155,4 +153,15 @@ agent_ = create_react_agent(llm, tools, react_agent_prompt)
 agent = AgentExecutor(agent=agent_, tools=tools, verbose=True, max_iterations=5)
 
 query_qa = "search from arxiv, what is transformer and why it yields good result in llm?"
-response = agent.invoke({"input": query_qa})
+in_ = input("Enter your query: ")
+while in_.lower() != "exit":
+    query_qa = in_
+    if not query_qa.strip():
+        print("Query cannot be empty. Please enter a valid query.")
+        in_ = input("Enter your query: ")
+        continue
+    print(f"Start thinking....")
+    # Invoke the agent with the query
+    response = agent.invoke({"input": query_qa})
+    in_ = input("Enter your query (type 'exit' to exit program):")
+print("Exiting the script. Goodbye!")
