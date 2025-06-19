@@ -64,7 +64,7 @@ def search_arxiv(question: str):
     resp = requests.get(url, params=params)
     resp = parse_arxiv_response(resp)  # Get the first paper
     if not resp:
-        raise ValueError("No papers found for the given query.")
+        return None
     return resp[0]
 
 def download_pdf(paper: dict, save_dir: str = "downloads"):
@@ -111,8 +111,13 @@ def answer_question(rag_chain: Runnable, question: str):
 def qa_pipeline(question: str):
     # 1) 搜索
     info = search_arxiv(question)
-    print(f"[1] 找到论文：{info}")
+
+    if not info or not info.get('pdf_url'):
+        print("没有找到相关论文或PDF链接，我将根据我的知识回答问题。")
+        return llm.invoke(question) 
     
+    print(f"[1] 找到论文：{info}")
+
     # 2) 下载
     pdf_path = download_pdf(info)
     print(f"[2] 下载完成：{pdf_path}")
